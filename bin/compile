@@ -15,7 +15,7 @@ CACHE_DIR=$2
 OPENCV_VERSION="4.3.0";
 PYTHON_VERSION="3.7.6";
 PYTHON_VERSION_SHORT="37";
-cd /root
+cd $BUILD_DIR
 
 echo "-----> Removing previous installed versions of ffmpeg and x264"
 
@@ -66,7 +66,7 @@ wget https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip && \
     unzip ${OPENCV_VERSION}.zip && \
     mkdir opencv-${OPENCV_VERSION}/build
 
-cd /root/opencv-${OPENCV_VERSION}/build
+cd ${BUILD_DIR}/opencv-${OPENCV_VERSION}/build
 
 echo "-----> CMAKE OpenCV"
 cmake \
@@ -97,7 +97,7 @@ cmake \
 
 echo "-----> Installing cv2.so into local Python"
 mv \
-  /root/opencv-${OPENCV_VERSION}/build/lib/python3/cv2.cpython-${PYTHON_VERSION_SHORT}m-x86_64-linux-gnu.so \
+  ${BUILD_DIR}/opencv-${OPENCV_VERSION}/build/lib/python3/cv2.cpython-${PYTHON_VERSION_SHORT}m-x86_64-linux-gnu.so \
   /usr/local/lib/python${PYTHON_VERSION}/dist-packages/cv2.so
 
 echo "-----> Relinking Python"
@@ -109,4 +109,4 @@ cd /root
 echo "-----> Cleaning installation "
 apt clean && \
   rm -rf /var/lib/apt/lists/* && \
-  rm -rf /root/opencv-${OPENCV_VERSION}
+  rm -rf ${BUILD_DIR}/opencv-${OPENCV_VERSION}
