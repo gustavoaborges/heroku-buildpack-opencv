@@ -8,38 +8,105 @@ set -e
 BUILD_DIR=$1
 CACHE_DIR=$2
 
-OPENCV_PACKAGE="https://s3-us-west-2.amazonaws.com/cdn.thegrid.io/caliper/opencv-build-0.0.1.tar.gz"
-OPENCV_PACKAGE_ETAG=$(curl -s --head "$OPENCV_PACKAGE" | grep -Ei '^etag' | sed -r 's/^etag|[^a-zA-Z0-9]+//gi')
-VENDORED_OPENCV="/app/vendor/opencv"
-OPENCV_CACHE="$CACHE_DIR/opencv_$OPENCV_PACKAGE_ETAG";
+# OPENCV_PACKAGE="https://s3-us-west-2.amazonaws.com/cdn.thegrid.io/caliper/opencv-build-0.0.1.tar.gz"
+# OPENCV_PACKAGE_ETAG=$(curl -s --head "$OPENCV_PACKAGE" | grep -Ei '^etag' | sed -r 's/^etag|[^a-zA-Z0-9]+//gi')
+# VENDORED_OPENCV="/app/vendor/opencv"
+# OPENCV_CACHE="$CACHE_DIR/opencv_$OPENCV_PACKAGE_ETAG";
+OPENCV_VERSION="4.3.0";
+PYTHON_VERSION="3.7.6";
+PYTHON_VERSION_SHORT="37";
+cd /root
 
-if [ -d "$OPENCV_CACHE" ]; then
-  echo "-----> Reusing cached OpenCV ($OPENCV_PACKAGE_ETAG)"
-  cp -a $OPENCV_CACHE $VENDORED_OPENCV
-else
-  echo "-----> Fetching and caching OpenCV ($OPENCV_PACKAGE_ETAG)"
-  mkdir -p $VENDORED_OPENCV
-  curl $OPENCV_PACKAGE -s -o - | tar xzf - -C $VENDORED_OPENCV
-  mkdir -p $CACHE_DIR
-  cp -a $VENDORED_OPENCV $OPENCV_CACHE
-fi
+echo "-----> Removing previous installed versions of ffmpeg and x264"
 
-# vendor
-echo "-----> Vendoring OpenCV shared objects into slug"
-VENDORED_SO="$BUILD_DIR/vendor/opencv/lib"
-mkdir -p $VENDORED_SO
-cp -a "$VENDORED_OPENCV/lib/." $VENDORED_SO
+apt-get update
+apt-get remove -y ffmpeg x264 libx264-dev
 
-export PKG_CONFIG_PATH="/app/vendor/opencv/lib/pkgconfig:$PKG_CONFIG_PATH"
-export LD_LIBRARY_PATH="/app/vendor/opencv/lib:$LD_LIBRARY_PATH"
+echo "-----> Installing dependencies to build OpenCV"
 
-cat <<EOF > export
-export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="\$PKG_CONFIG_PATH:$PKG_CONFIG_PATH"
-EOF
+apt-get install -y \
+    build-essential \
+    cmake \
+    libjack-jackd2-dev \
+    libmp3lame-dev \
+    libopencore-amrnb-dev \
+    libopencore-amrwb-dev \
+    libsdl1.2-dev \
+    libtheora-dev \
+    libva-dev \
+    libvdpau-dev \
+    libvorbis-dev \
+    libx11-dev \
+    libxfixes-dev \
+    libxvidcore-dev \
+    texi2html \
+    zlib1g-dev \
+    wget \
+    unzip \
+    yasm \
+    pkg-config \
+    libswscale-dev \
+    libtbb2 \
+    libtbb-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libavformat-dev \
+    libpq-dev
 
-# runtime
-mkdir -p "$BUILD_DIR/.profile.d"
-echo "export LD_LIBRARY_PATH=\"/app/vendor/opencv/lib:\$LD_LIBRARY_PATH\"" > $BUILD_DIR/.profile.d/opencv.sh
-echo "export PKG_CONFIG_PATH=\"/app/vendor/opencv/lib/pkgconfig:\$PKG_CONFIG_PATH\"" >> $BUILD_DIR/.profile.d/opencv.sh
+echo "-----> Reinstalling ffmpeg and x264"
 
+apt-get remove -y x264 ffmpeg libx264-dev && \
+    apt-get install -y x264 libx264-dev && \
+    apt-get install -y ffmpeg
+
+echo "-----> Downloading OpenCV source"
+
+wget https://github.com/opencv/opencv/archive/${OPENCV_VERSION}.zip && \
+    unzip ${OPENCV_VERSION}.zip && \
+    mkdir opencv-${OPENCV_VERSION}/build
+
+cd /root/opencv-${OPENCV_VERSION}/build
+
+echo "-----> CMAKE OpenCV"
+cmake \
+  -DBUILD_TIFF=ON \
+  -DBUILD_opencv_java=OFF \
+  -DWITH_CUDA=OFF \
+  -DWITH_OPENGL=ON \
+  -DWITH_OPENCL=ON \
+  -DWITH_IPP=ON \
+  -DWITH_TBB=ON \
+  -DWITH_EIGEN=ON \
+  -DWITH_V4L=ON \
+  -DBUILD_TESTS=OFF \
+  -DBUILD_PERF_TESTS=OFF \
+  -DCMAKE_BUILD_TYPE=RELEASE \
+  -DCMAKE_INSTALL_PREFIX=$(python${PYTHON_VERSION} -c "import sys; print(sys.prefix)") \
+  -DPYTHON_EXECUTABLE=$(which python${PYTHON_VERSION}) \
+  -DPYTHON_INCLUDE_DIR=$(python${PYTHON_VERSION} -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())") \
+  -DPYTHON_PACKAGES_PATH=$(python${PYTHON_VERSION} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())") \
+  -DPYTHON_DEFAULT_EXECUTABLE=$(which python${PYTHON_VERSION}) \
+  -DBUILD_NEW_PYTHON_SUPPORT=ON \
+  -DBUILD_opencv_python3=ON \
+  -DHAVE_opencv_python3=ON \
+  -DBUILD_opencv_gapi=OFF \
+  -DPYTHON3_NUMPY_INCLUDE_DIRS=/usr/local/lib/python${PYTHON_VERSION}/dist-packages/numpy/core/include \
+  .. \
+ && make install
+
+echo "-----> Installing cv2.so into local Python"
+mv \
+  /root/opencv-${OPENCV_VERSION}/build/lib/python3/cv2.cpython-${PYTHON_VERSION_SHORT}m-x86_64-linux-gnu.so \
+  /usr/local/lib/python${PYTHON_VERSION}/dist-packages/cv2.so
+
+echo "-----> Relinking Python"
+
+unlink /usr/bin/python && ln -s /usr/bin/python3 /usr/bin/python
+
+cd /root
+
+echo "-----> Cleaning installation "
+apt clean && \
+  rm -rf /var/lib/apt/lists/* && \
+  rm -rf /root/opencv-${OPENCV_VERSION}
